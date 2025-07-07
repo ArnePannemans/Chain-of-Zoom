@@ -4,7 +4,7 @@
 
 ## Ideas
 
-- Switch to TSD-S for better super resolution
+- Switch to TSD-SR for better super resolution. Not highest prio.
 - Implement better prompting techniques
 - Explore using a better Vision-Language Model (VLM)
 - Create a UI to select the region to zoom in on
