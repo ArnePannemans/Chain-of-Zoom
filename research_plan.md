@@ -1,5 +1,7 @@
 ## Changelog
 
+- **2025-07-07**: Streamlined inference code - removed unused recursion types (nearest, bicubic, onestep, recursive), removed DAPE/null prompt types, removed color alignment methods. Now only supports recursive_multiscale + VLM prompts (best performing configuration).
+
 ## Ideas
 
 - Switch to TSD-S for better super resolution
