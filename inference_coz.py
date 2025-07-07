@@ -204,8 +204,14 @@ if __name__ == "__main__":
 
     # Initialize Super-Resolution model (always needed for recursive_multiscale)
     print("🚀 Initializing Chain-of-Zoom inference...")
-    if not args.efficient_memory:
-        # Standard two-GPU setup
+    
+    # Check available GPUs
+    num_gpus = torch.cuda.device_count()
+    print(f"🔍 Detected {num_gpus} GPU(s)")
+    
+    if not args.efficient_memory and num_gpus >= 2:
+        # Multi-GPU setup (text encoders on GPU 0, transformer/VAE on GPU 1)
+        print("📡 Using multi-GPU setup (text encoders on GPU 0, transformer/VAE on GPU 1)")
         from osediff_sd3 import OSEDiff_SD3_TEST, SD3Euler
         model = SD3Euler()
         model.text_enc_1.to('cuda:0')
@@ -216,17 +222,33 @@ if __name__ == "__main__":
         for p in [model.text_enc_1, model.text_enc_2, model.text_enc_3, model.transformer, model.vae]:
             p.requires_grad_(False)
         model_test = OSEDiff_SD3_TEST(args, model)
-        print("✅ SR model loaded (standard mode)")
+        print("✅ SR model loaded (multi-GPU mode)")
     else:
-        # Memory-efficient single-GPU setup
+        # Single-GPU or efficient memory setup
+        if args.efficient_memory:
+            print("💾 Using memory-efficient mode (components moved CPU/GPU on demand)")
+        else:
+            print("🔧 Falling back to single-GPU mode (all components on GPU 0)")
+        
         from osediff_sd3 import OSEDiff_SD3_TEST_efficient, SD3Euler
         model = SD3Euler()
-        model.transformer.to('cuda', dtype=torch.float32)
-        model.vae.to('cuda', dtype=torch.float32)
+        
+        if args.efficient_memory:
+            # For efficient memory, only keep transformer and VAE on GPU initially
+            model.transformer.to('cuda', dtype=torch.float32)
+            model.vae.to('cuda', dtype=torch.float32)
+        else:
+            # For single GPU, put everything on cuda:0
+            model.text_enc_1.to('cuda:0')
+            model.text_enc_2.to('cuda:0') 
+            model.text_enc_3.to('cuda:0')
+            model.transformer.to('cuda:0', dtype=torch.float32)
+            model.vae.to('cuda:0', dtype=torch.float32)
+            
         for p in [model.text_enc_1, model.text_enc_2, model.text_enc_3, model.transformer, model.vae]:
             p.requires_grad_(False)
         model_test = OSEDiff_SD3_TEST_efficient(args, model)
-        print("✅ SR model loaded (memory-efficient mode)")
+        print("✅ SR model loaded (single-GPU/efficient mode)")
 
     # Gather input images
     if os.path.isdir(args.input_image):
@@ -338,17 +360,17 @@ if __name__ == "__main__":
             print(f"      🚀 Running super-resolution...")
             with torch.no_grad():
                 # Normalize input to [-1, 1] range
-                lq = lq * 2 - 1            # Ensure SR model is on correct device for inference
-            if args.efficient_memory and model is not None:
-                print("      🔄 Ensuring SR model components are on CUDA for inference")
-                # Import here to avoid circular import issues
-                from osediff_sd3 import OSEDiff_SD3_TEST_efficient
-                if not isinstance(model_test, OSEDiff_SD3_TEST_efficient):
-                    model.text_enc_1.to('cuda:0')
-                    model.text_enc_2.to('cuda:0')
-                    model.text_enc_3.to('cuda:0')
-                model.transformer.to('cuda', dtype=torch.float32)
-                model.vae.to('cuda', dtype=torch.float32)
+                lq = lq * 2 - 1
+                
+                # Ensure SR model components are on correct device for inference
+                if args.efficient_memory:
+                    print("      🔄 Ensuring SR model components are on CUDA for inference")
+                    # For efficient memory mode, move text encoders to GPU if needed
+                    model.text_enc_1.to('cuda')
+                    model.text_enc_2.to('cuda')
+                    model.text_enc_3.to('cuda')
+                    model.transformer.to('cuda', dtype=torch.float32)
+                    model.vae.to('cuda', dtype=torch.float32)
 
                 # Run super-resolution
                 output_image = model_test(lq, prompt=validation_prompt)
